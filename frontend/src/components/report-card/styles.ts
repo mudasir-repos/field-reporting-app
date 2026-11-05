@@ -51,4 +51,35 @@ export const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 10,
   },
+
+  imageWrapper: {
+    width: 76,
+    height: 76,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+
+  moreImagesOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  moreImagesText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  imageContainer: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
+  },
+
+  thumbnail: {
+    width: 55,
+    height: 55,
+    borderRadius: 7,
+  },
 });

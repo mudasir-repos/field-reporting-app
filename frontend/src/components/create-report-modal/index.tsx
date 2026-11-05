@@ -18,21 +18,23 @@ import {
   type Asset,
 } from 'react-native-image-picker';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { styles } from './styles';
 import { CreateReportDraft } from '../../types';
-import { compressImage } from '../../utils/compress-image';
 import { requestCameraPermission } from '../../utils/camera-permission';
+import { compressImage } from '../../utils/compress-image';
+import { styles } from './styles';
 
 const MAX_IMAGES = 5;
 
 interface CreateReportModalProps {
   visible: boolean;
+  isSaving: boolean;
   onClose: () => void;
   onSubmit: (report: CreateReportDraft) => void;
 }
 
 function CreateReportModal({
   visible,
+  isSaving,
   onClose,
   onSubmit,
 }: CreateReportModalProps) {
@@ -47,7 +49,8 @@ function CreateReportModal({
     images.length === 0 ||
     !description.trim() ||
     isPickingImages ||
-    isCompressingImages;
+    isCompressingImages ||
+    isSaving;
 
   useEffect(() => {
     if (!visible) {
@@ -330,7 +333,11 @@ function CreateReportModal({
                 btnDisabled && styles.disabledButton,
               ]}
             >
-              <Text style={styles.submitButtonText}>Continue</Text>
+              {isSaving ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.submitButtonText}>Continue</Text>
+              )}
             </Pressable>
           </ScrollView>
           {previewImageUri && (

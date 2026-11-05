@@ -1,42 +1,21 @@
-import { useState } from 'react';
-import { Pressable, ScrollView, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { v4 as uuidv4 } from 'uuid';
 import { CreateReportModal, ReportCard } from '../../components';
 import ReportsTabs from '../../components/reports-tab';
-import { CreateReportDraft, ReportsTab, UploadStatus } from '../../types';
+import {
+  createLocalReport,
+  getLocalReports,
+} from '../../database/report-repository';
+import {
+  CreateReportDraft,
+  ReportsTab,
+  StoredReport,
+  UploadStatus,
+} from '../../types';
 import { styles } from './styles';
-
-// Temporary mock data
-const queueReports = [
-  {
-    id: '1',
-    title: 'Damaged road near main street',
-    imageCount: 3,
-    date: 'Just now',
-    uploadStatus: UploadStatus.PENDING,
-  },
-  {
-    id: '2',
-    title: 'Broken street light',
-    imageCount: 2,
-    date: 'Today, 10:30 AM',
-    uploadStatus: UploadStatus.UPLOADING,
-  },
-  {
-    id: '3',
-    title: 'Garbage collection issue',
-    imageCount: 4,
-    date: 'Today, 9:45 AM',
-    uploadStatus: UploadStatus.FAILED,
-  },
-  {
-    id: '4',
-    title: 'Damaged sidewalk',
-    imageCount: 2,
-    date: 'Yesterday',
-    uploadStatus: UploadStatus.WAITING,
-  },
-];
+import { formatReportDate } from '../../utils/helper';
 
 const allReports = [
   {
@@ -65,8 +44,67 @@ const allReports = [
 function ReportsScreen() {
   const [activeTab, setActiveTab] = useState<ReportsTab>('queue');
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [queueReports, setQueueReports] = useState<StoredReport[]>([]);
+  const [isLoadingQueue, setIsLoadingQueue] = useState(true);
 
   const isQueueTab = activeTab === 'queue';
+
+  useEffect(() => {
+    loadQueueReports();
+  }, []);
+
+  const loadQueueReports = async () => {
+    try {
+      const reports = await getLocalReports();
+
+      // Uploaded reports no longer belong in the pending upload queue.
+      setQueueReports(
+        reports.filter(report => report.uploadStatus !== 'uploaded'),
+      );
+    } catch (error) {
+      console.error('Failed to load reports from SQLite:', error);
+
+      Alert.alert(
+        'Unable to load reports',
+        'Something went wrong while loading your saved reports.',
+      );
+    } finally {
+      setIsLoadingQueue(false);
+    }
+  };
+
+  const handleCreateReport = async (report: CreateReportDraft) => {
+    if (isSaving) {
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      await createLocalReport({
+        id: uuidv4(),
+        description: report.description,
+        images: report.images,
+      });
+      await loadQueueReports();
+
+      setIsCreateModalVisible(false);
+
+      Alert.alert(
+        'Report saved',
+        'Your report has been saved locally and is waiting to upload.',
+      );
+    } catch (error) {
+      console.error('Failed to save report:', error);
+
+      Alert.alert(
+        'Unable to save report',
+        'Your report could not be saved. Please try again.',
+      );
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <>
@@ -96,13 +134,26 @@ function ReportsScreen() {
             </Text>
           </View>
 
-          {isQueueTab
-            ? queueReports.map(report => (
-                <ReportCard key={report.id} {...report} />
+          {isQueueTab ? (
+            isLoadingQueue ? (
+              <Text>Loading reports...</Text>
+            ) : queueReports.length === 0 ? (
+              <Text>No reports saved yet.</Text>
+            ) : (
+              queueReports.map(report => (
+                <ReportCard
+                  key={report.id}
+                  title={report.description}
+                  imageCount={report.imagePaths.length}
+                  imagePaths={report.imagePaths}
+                  date={formatReportDate(report.createdAt)}
+                  uploadStatus={report.uploadStatus as UploadStatus}
+                />
               ))
-            : allReports.map(report => (
-                <ReportCard key={report.id} {...report} />
-              ))}
+            )
+          ) : (
+            allReports.map(report => <ReportCard key={report.id} {...report} />)
+          )}
         </ScrollView>
 
         {activeTab === 'queue' && (
@@ -117,10 +168,9 @@ function ReportsScreen() {
 
       <CreateReportModal
         visible={isCreateModalVisible}
+        isSaving={isSaving}
         onClose={() => setIsCreateModalVisible(false)}
-        onSubmit={(report: CreateReportDraft) => {
-          console.log('Validated report:', report);
-        }}
+        onSubmit={handleCreateReport}
       />
     </>
   );

@@ -1,4 +1,4 @@
-import { Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
 import { styles } from './styles';
 import { UploadStatus } from '../../types';
 import { uploadStatusConfig } from '../../utils/constant';
@@ -7,6 +7,7 @@ interface ReportCardProps {
   title: string;
   imageCount: number;
   date: string;
+  imagePaths?: string[];
   uploadStatus?: UploadStatus;
   reviewStatus?: string;
 }
@@ -15,6 +16,7 @@ function ReportCard({
   title,
   imageCount,
   date,
+  imagePaths = [],
   uploadStatus,
   reviewStatus,
 }: ReportCardProps) {
@@ -37,6 +39,19 @@ function ReportCard({
           </View>
         )}
       </View>
+
+      {imagePaths.length > 0 && (
+        <View style={styles.imageContainer}>
+          {imagePaths.map((imagePath, index) => (
+            <Image
+              key={`${imagePath}-${index}`}
+              source={{ uri: imagePath }}
+              style={styles.thumbnail}
+              resizeMode="cover"
+            />
+          ))}
+        </View>
+      )}
 
       <View style={styles.metadata}>
         <Text style={styles.metadataText}>

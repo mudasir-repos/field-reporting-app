@@ -19,4 +19,9 @@ export const uploadStatusConfig = {
     color: '#DC2626',
     background: '#FEE2E2',
   },
+  uploaded: {
+    label: 'Uploaded',
+    color: '#15803D',
+    background: '#DCFCE7',
+  },
 };
