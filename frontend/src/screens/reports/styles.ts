@@ -42,4 +42,22 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
   },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    bottom: 60,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 6,
+  },
+  fabText: {
+    color: '#FFFFFF',
+    fontSize: 34,
+    lineHeight: 38,
+    fontWeight: '400',
+  },
 });

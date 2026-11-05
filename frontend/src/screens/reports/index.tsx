@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { ScrollView, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { ReportCard } from '../../components';
+import { CreateReportModal, ReportCard } from '../../components';
 import ReportsTabs from '../../components/reports-tab';
-import { ReportsTab, UploadStatus } from '../../types';
+import { CreateReportDraft, ReportsTab, UploadStatus } from '../../types';
 import { styles } from './styles';
 
 // Temporary mock data
@@ -64,45 +64,65 @@ const allReports = [
 
 function ReportsScreen() {
   const [activeTab, setActiveTab] = useState<ReportsTab>('queue');
+  const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
 
   const isQueueTab = activeTab === 'queue';
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={styles.heading}>Reports</Text>
+    <>
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <Text style={styles.heading}>Reports</Text>
 
-        <Text style={styles.subtitle}>Manage your field reports</Text>
-      </View>
-
-      <ReportsTabs activeTab={activeTab} onTabChange={setActiveTab} />
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>
-            {isQueueTab ? 'Pending uploads' : 'Submitted reports'}
-          </Text>
-
-          <Text style={styles.count}>
-            {isQueueTab
-              ? `${queueReports.length} reports`
-              : `${allReports.length} reports`}
-          </Text>
+          <Text style={styles.subtitle}>Manage your field reports</Text>
         </View>
 
-        {isQueueTab
-          ? queueReports.map(report => (
-              <ReportCard key={report.id} {...report} />
-            ))
-          : allReports.map(report => (
-              <ReportCard key={report.id} {...report} />
-            ))}
-      </ScrollView>
-    </SafeAreaView>
+        <ReportsTabs activeTab={activeTab} onTabChange={setActiveTab} />
+
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>
+              {isQueueTab ? 'Pending uploads' : 'Submitted reports'}
+            </Text>
+
+            <Text style={styles.count}>
+              {isQueueTab
+                ? `${queueReports.length} reports`
+                : `${allReports.length} reports`}
+            </Text>
+          </View>
+
+          {isQueueTab
+            ? queueReports.map(report => (
+                <ReportCard key={report.id} {...report} />
+              ))
+            : allReports.map(report => (
+                <ReportCard key={report.id} {...report} />
+              ))}
+        </ScrollView>
+
+        {activeTab === 'queue' && (
+          <Pressable
+            style={styles.fab}
+            onPress={() => setIsCreateModalVisible(true)}
+          >
+            <Text style={styles.fabText}>＋</Text>
+          </Pressable>
+        )}
+      </SafeAreaView>
+
+      <CreateReportModal
+        visible={isCreateModalVisible}
+        onClose={() => setIsCreateModalVisible(false)}
+        onSubmit={(report: CreateReportDraft) => {
+          console.log('Validated report:', report);
+        }}
+      />
+    </>
   );
 }
 

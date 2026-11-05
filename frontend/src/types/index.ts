@@ -1,3 +1,5 @@
+import { type Asset } from 'react-native-image-picker';
+
 export enum UploadStatus {
   PENDING = 'pending',
   UPLOADING = 'uploading',
@@ -6,3 +8,8 @@ export enum UploadStatus {
 }
 
 export type ReportsTab = 'queue' | 'all';
+
+export interface CreateReportDraft {
+  description: string;
+  images: Asset[];
+}
