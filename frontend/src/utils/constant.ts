@@ -1,3 +1,5 @@
+export const MAX_UPLOAD_ATTEMPTS = 5;
+
 export const uploadStatusConfig = {
   pending: {
     label: 'Pending',

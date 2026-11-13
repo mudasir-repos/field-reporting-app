@@ -58,9 +58,27 @@ export const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#111827',
   },
+  sectionRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
   count: {
     fontSize: 12,
     color: '#6B7280',
+  },
+  retryAllButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  retryAllButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DC2626',
   },
 
   loader: {
@@ -98,6 +116,8 @@ export const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: '#2563EB',
     borderRadius: 8,
+    minWidth: 100,
+    alignItems: 'center',
   },
   retryButtonText: {
     color: '#FFFFFF',

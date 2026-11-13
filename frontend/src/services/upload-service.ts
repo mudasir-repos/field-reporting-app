@@ -8,25 +8,25 @@
  * Key design decisions:
  *
  * • react-native-blob-util's fetch is used instead of axios so that image
- *   files are streamed directly from disk as multipart fields.  This avoids
+ *   files are streamed directly from disk as multipart fields. This avoids
  *   loading potentially five full JPEG files into the JS heap simultaneously,
  *   which matters on a low-memory device over a slow 2G link.
  *
  * • The report's local UUID is sent as the `Idempotency-Key` header on every
- *   attempt.  The server uses it as the primary key (see report-controller.ts),
+ *   attempt. The server uses it as the primary key (see report-controller.ts),
  *   so a duplicate submission returns HTTP 200 with the existing record instead
  *   of creating a second row — "nothing lands twice".
  *
- * • Status transitions written to SQLite before / after each network call:
- *     pending → uploading  (request is being sent)
- *     uploading → waiting  (request sent, awaiting server response)
- *     waiting  → uploaded  (success: 200 or 201)
- *     waiting  → failed    (any non-retriable error)
+ * • Status transitions written to SQLite:
+ *     pending → uploading (request is being sent)
+ *     uploading → waiting (all bytes sent, awaiting server response)
+ *     waiting → uploaded (success: 200 or 201)
+ *     waiting → failed (any error)
  *   On a force-quit during uploading/waiting, resetStuckReports() rewinds
  *   the status back to pending on the next app launch.
  *
- * • A per-request timeout (UPLOAD_TIMEOUT_MS) prevents the queue from
- *   stalling indefinitely on the server's "hang" failure-simulation mode.
+ * • A 90-second timeout (UPLOAD_TIMEOUT_MS) handles the 'hang' failure simulation.
+ *   Without this, the queue stalls forever on a request that never answers.
  */
 
 import RNBlobUtil from 'react-native-blob-util';
@@ -39,15 +39,14 @@ import { updateReportStatus } from '../database/report-repository';
 
 /**
  * Hard timeout for a single upload attempt.
- * 90 s is generous enough for 5 × 4.5 MB images on a slow link, yet still
- * short enough to detect a hung server within a reasonable time.
+ * 90 s handles the 'hang' failure simulation without stalling the queue forever.
  */
 const UPLOAD_TIMEOUT_MS = 90_000;
 
 // ─── Errors ────────────────────────────────────────────────────────────────────
 
 /**
- * Thrown when the server responds with a 4xx / 5xx that indicates a permanent
+ * Thrown when the server responds with a 4xx that indicates a permanent
  * problem with this specific report (e.g. malformed payload, too many images).
  * The queue runner should NOT retry permanent errors.
  */
@@ -75,16 +74,13 @@ export class TransientUploadError extends Error {
 /**
  * Uploads a single report to the server.
  *
- * Preconditions:
- *   - `report.uploadStatus` must be `'pending'` or `'failed'`.
- *   - `report.imagePaths` must each point to an existing local file.
- *
- * On success the report's local status is set to `'uploaded'`.
- * On failure the status is set to `'failed'` with the error message stored.
- * In both cases the function resolves (never rejects) so the queue runner can
- * continue to the next report without its own try/catch.
+ * @param report The report to upload
+ * @param onStatusChange Optional callback triggered when status changes (uploading, waiting)
  */
-export async function uploadReport(report: StoredReport): Promise<void> {
+export async function uploadReport(
+  report: StoredReport,
+  onStatusChange?: (status: UploadStatus) => void,
+): Promise<void> {
   // Guard: never re-upload an already-uploaded report.
   if (report.uploadStatus === UploadStatus.UPLOADED) {
     return;
@@ -98,14 +94,10 @@ export async function uploadReport(report: StoredReport): Promise<void> {
     uploadAttempts: newAttempts,
     lastError: null,
   });
+  onStatusChange?.(UploadStatus.UPLOADING);
 
   try {
     // ── 2. Build multipart data ──────────────────────────────────────────────
-    //
-    // react-native-blob-util's `wrap()` streams the file directly from disk.
-    // Each field gets the name `images` to match the multer field name on the
-    // server (`upload.array('images', 5)`).
-
     type BlobFetchPart =
       | { name: string; data: string }
       | {
@@ -135,20 +127,8 @@ export async function uploadReport(report: StoredReport): Promise<void> {
       });
     }
 
-    // ── 3. Mark as waiting (data sent, awaiting response) ───────────────────
-    //
-    // We update the status before the await so that if the app is killed while
-    // waiting for the server response, resetStuckReports() will rewind it back
-    // to pending on the next launch.
-    //
-    // Note: RNBlobUtil.fetch is a Promise, so the status update and the fetch
-    // are sequential — the status flip happens before we yield to the network.
-    await updateReportStatus(report.id, {
-      uploadStatus: UploadStatus.WAITING,
-    });
-
-    // ── 4. Send the request ──────────────────────────────────────────────────
-    const response = await RNBlobUtil.config({
+    // ── 3. Send request & monitor progress ───────────────────────────────────
+    const fetchTask = RNBlobUtil.config({
       timeout: UPLOAD_TIMEOUT_MS,
     }).fetch(
       'POST',
@@ -161,10 +141,29 @@ export async function uploadReport(report: StoredReport): Promise<void> {
       parts as Parameters<typeof RNBlobUtil.fetch>[3],
     );
 
+    let transitionedToWaiting = false;
+
+    // Once all bytes are sent to the network socket, transition to 'waiting'
+    fetchTask.uploadProgress((written, total) => {
+      if (written >= total && !transitionedToWaiting) {
+        transitionedToWaiting = true;
+        updateReportStatus(report.id, {
+          uploadStatus: UploadStatus.WAITING,
+        })
+          .then(() => {
+            onStatusChange?.(UploadStatus.WAITING);
+          })
+          .catch(err => {
+            console.warn('[UploadService] Failed to set waiting status:', err);
+          });
+      }
+    });
+
+    const response = await fetchTask;
     const statusCode = response.info().status;
     const rawBody = response.data as string;
 
-    // ── 5. Handle server response ────────────────────────────────────────────
+    // ── 4. Handle server response ────────────────────────────────────────────
 
     // 200 → server already holds this report (idempotent replay).
     // 201 → report created successfully.
@@ -175,8 +174,6 @@ export async function uploadReport(report: StoredReport): Promise<void> {
         const body = JSON.parse(rawBody) as ServerSuccessResponse;
         serverId = body.report?.id ?? null;
       } catch {
-        // If the body can't be parsed we still treat the upload as successful;
-        // the status code is authoritative.
         console.warn(
           `[UploadService] Could not parse success body for report ${report.id}.`,
         );
@@ -222,8 +219,7 @@ export async function uploadReport(report: StoredReport): Promise<void> {
       `Server returned HTTP ${statusCode}. Will retry.`,
     );
   } catch (error: unknown) {
-    // ── 6. Classify and persist the failure ──────────────────────────────────
-
+    // ── 5. Classify and persist the failure ──────────────────────────────────
     const isPermanent = error instanceof PermanentUploadError;
 
     const errorMessage =

@@ -18,11 +18,14 @@ import {
   deleteAllLocalReports,
   deleteReportImages,
   getLocalReports,
+  retryAllFailedReports,
+  retryReport,
 } from '../../database/report-repository';
 import {
   onQueueChanged,
   startQueueRunner,
   stopQueueRunner,
+  wakeQueueRunner,
 } from '../../services/queue-runner';
 import {
   CreateReportDraft,
@@ -53,6 +56,7 @@ function ReportsScreen() {
   const {
     data: serverReports = [],
     isLoading: isLoadingServer,
+    isFetching: isFetchingServer,
     isError: isServerError,
     refetch: refetchServerReports,
   } = useQuery({
@@ -84,20 +88,16 @@ function ReportsScreen() {
   };
 
   // Load queue once on mount, then subscribe to queue runner events.
-  //
-  // The queue runner calls onQueueChanged() after each upload finishes
-  // (success or failure). On success we also mark the server reports cache
-  // as stale so the All Reports tab re-fetches automatically next time the
-  // user opens it — no polling needed.
+  // When an upload succeeds, we also stale the server cache so the
+  // All Reports tab automatically re-fetches when opened.
   useEffect(() => {
     loadQueueReports();
 
     const unsubscribe = onQueueChanged((uploadedSuccessfully: boolean) => {
-      // Always reload the queue list so statuses stay in sync.
+      // Reload the queue list so statuses (uploading, waiting, failed, uploaded) update in real-time.
       loadQueueReports();
 
-      // If a report just uploaded successfully, mark the server cache stale.
-      // TanStack Query will re-fetch when the user opens the All Reports tab.
+      // If a report just uploaded successfully, mark server cache as stale.
       if (uploadedSuccessfully) {
         queryClient.invalidateQueries({ queryKey: SERVER_REPORTS_QUERY_KEY });
       }
@@ -120,7 +120,10 @@ function ReportsScreen() {
         description: report.description,
         images: report.images,
       });
+
+      // Reload queue and wake up the runner immediately.
       await loadQueueReports();
+      wakeQueueRunner();
 
       setIsCreateModalVisible(false);
 
@@ -136,6 +139,30 @@ function ReportsScreen() {
       );
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // ── Retry actions ───────────────────────────────────────────────────────────
+
+  const handleRetryReport = async (reportId: string) => {
+    try {
+      await retryReport(reportId);
+      wakeQueueRunner();
+      await loadQueueReports();
+    } catch (error) {
+      console.error('Failed to retry report:', error);
+      Alert.alert('Retry failed', 'Could not reset the report for retry.');
+    }
+  };
+
+  const handleRetryAllFailed = async () => {
+    try {
+      await retryAllFailedReports();
+      wakeQueueRunner();
+      await loadQueueReports();
+    } catch (error) {
+      console.error('Failed to retry all failed reports:', error);
+      Alert.alert('Retry failed', 'Could not reset failed reports for retry.');
     }
   };
 
@@ -195,7 +222,6 @@ function ReportsScreen() {
     } catch (error) {
       console.error('Reset failed:', error);
       Alert.alert('Reset failed', 'Something went wrong. Please try again.');
-      // Restart the runner even if reset partially failed.
       startQueueRunner();
     } finally {
       setIsResetting(false);
@@ -206,6 +232,10 @@ function ReportsScreen() {
 
   const isQueueTab = activeTab === 'queue';
   const reportCount = isQueueTab ? queueReports.length : serverReports.length;
+
+  const hasFailedReports = queueReports.some(
+    report => report.uploadStatus === UploadStatus.FAILED,
+  );
 
   return (
     <>
@@ -240,7 +270,19 @@ function ReportsScreen() {
               {isQueueTab ? 'Pending uploads' : 'Submitted reports'}
             </Text>
 
-            <Text style={styles.count}>{reportCount} reports</Text>
+            <View style={styles.sectionRight}>
+              {isQueueTab && hasFailedReports && (
+                <Pressable
+                  style={styles.retryAllButton}
+                  onPress={handleRetryAllFailed}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry all failed reports"
+                >
+                  <Text style={styles.retryAllButtonText}>Retry all failed</Text>
+                </Pressable>
+              )}
+              <Text style={styles.count}>{reportCount} reports</Text>
+            </View>
           </View>
 
           {isQueueTab ? (
@@ -257,13 +299,19 @@ function ReportsScreen() {
                   imagePaths={report.imagePaths}
                   date={formatReportDate(report.createdAt)}
                   uploadStatus={report.uploadStatus}
+                  lastError={report.lastError}
+                  uploadAttempts={report.uploadAttempts}
+                  onRetry={() => handleRetryReport(report.id)}
                 />
               ))
             )
           ) : isLoadingServer ? (
             <ActivityIndicator style={styles.loader} color="#2563EB" />
           ) : isServerError ? (
-            <ServerErrorState onRetry={refetchServerReports} />
+            <ServerErrorState
+              onRetry={refetchServerReports}
+              isRetrying={isFetchingServer}
+            />
           ) : serverReports.length === 0 ? (
             <AllReportsEmptyState />
           ) : (
@@ -327,9 +375,10 @@ function AllReportsEmptyState() {
 
 interface ServerErrorStateProps {
   onRetry: () => void;
+  isRetrying?: boolean;
 }
 
-function ServerErrorState({ onRetry }: ServerErrorStateProps) {
+function ServerErrorState({ onRetry, isRetrying }: ServerErrorStateProps) {
   return (
     <View style={styles.emptyState}>
       <Text style={styles.emptyStateIcon}>⚠️</Text>
@@ -337,8 +386,16 @@ function ServerErrorState({ onRetry }: ServerErrorStateProps) {
       <Text style={styles.emptyStateSubtitle}>
         Check your connection and try again.
       </Text>
-      <Pressable style={styles.retryButton} onPress={onRetry}>
-        <Text style={styles.retryButtonText}>Retry</Text>
+      <Pressable
+        style={styles.retryButton}
+        onPress={onRetry}
+        disabled={isRetrying}
+      >
+        {isRetrying ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : (
+          <Text style={styles.retryButtonText}>Retry</Text>
+        )}
       </Pressable>
     </View>
   );

@@ -47,9 +47,9 @@ const NETWORK_RETRY_DELAY_MS = 500;
 /**
  * Each listener receives a boolean:
  *   true  — an upload finished successfully (server responded 200/201).
- *   false — an upload failed (network error or server error).
+ *   false — a status transition happened (e.g. uploading, waiting, failed).
  *
- * The UI uses this to decide whether to also mark the server reports cache stale.
+ * The UI uses this to reload the queue and decide whether to stale the server cache.
  */
 type QueueChangeCallback = (uploadedSuccessfully: boolean) => void;
 
@@ -71,8 +71,8 @@ export function onQueueChanged(callback: QueueChangeCallback): () => void {
 }
 
 /**
- * Called internally after each upload attempt.
- * Pass true if the upload succeeded, false if it failed.
+ * Called internally after each upload status change or attempt.
+ * Pass true if the upload succeeded, false otherwise.
  */
 function notifyQueueChanged(uploadedSuccessfully: boolean): void {
   for (const listener of queueChangeListeners) {
@@ -91,16 +91,49 @@ let activeLoopPromise: Promise<void> | null = null;
 /** Callback to cancel waiting for network connectivity if the runner is stopped. */
 let stopWaitingForNetwork: (() => void) | null = null;
 
+/** Callback to cancel the current sleep delay (used by wakeQueueRunner). */
+let cancelActiveDelay: (() => void) | null = null;
+
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
 /**
- * Simple promise-based delay helper.
+ * Interruptible delay helper. Resolves after `ms` or immediately if cancelled.
  */
 function delay(ms: number): Promise<void> {
   if (ms <= 0) {
     return Promise.resolve();
   }
-  return new Promise(resolve => setTimeout(resolve, ms));
+
+  return new Promise(resolve => {
+    let completed = false;
+
+    const timer = setTimeout(() => {
+      if (!completed) {
+        completed = true;
+        cancelActiveDelay = null;
+        resolve();
+      }
+    }, ms);
+
+    cancelActiveDelay = () => {
+      if (!completed) {
+        completed = true;
+        clearTimeout(timer);
+        cancelActiveDelay = null;
+        resolve();
+      }
+    };
+  });
+}
+
+/**
+ * Wakes up the queue runner from any sleep delay immediately
+ * (e.g. after a manual retry or new report creation).
+ */
+export function wakeQueueRunner(): void {
+  if (cancelActiveDelay) {
+    cancelActiveDelay();
+  }
 }
 
 /**
@@ -113,15 +146,6 @@ function isDeviceOnline(state: NetInfoState): boolean {
 /**
  * Calculates exponential back-off for server errors (4xx / 5xx) in milliseconds.
  * Formula: min(1000 * 2^(attempts - 1), 60000)
- *
- * Example delays:
- * - Attempt 1: 1s
- * - Attempt 2: 2s
- * - Attempt 3: 4s
- * - Attempt 4: 8s
- * - Attempt 5: 16s
- * - Attempt 6: 32s
- * - Attempt 7+: 60s (capped)
  */
 export function calculateServerBackoff(attempts: number): number {
   const exponent = Math.max(0, attempts - 1);
@@ -131,8 +155,6 @@ export function calculateServerBackoff(attempts: number): number {
 
 /**
  * Checks if an error is a server error (4xx / 5xx).
- * PermanentUploadError: 4xx HTTP responses.
- * TransientUploadError: 5xx, 408, 429 HTTP responses.
  */
 export function isServerError(error: unknown): boolean {
   if (error instanceof PermanentUploadError) {
@@ -164,7 +186,6 @@ async function waitForNetwork(): Promise<void> {
     const currentState = await NetInfo.fetch();
     isOnline = isDeviceOnline(currentState);
   } catch {
-    // If NetInfo fetch fails (e.g. in test environment), proceed without pausing
     return;
   }
 
@@ -207,7 +228,6 @@ async function runQueueLoop(): Promise<void> {
   try {
     await resetStuckReports();
     console.log('[QueueRunner] Reset stuck in-flight reports to pending.');
-    // Notify the UI so it shows the corrected statuses on startup.
     notifyQueueChanged(false);
   } catch (error) {
     console.error('[QueueRunner] Failed to reset stuck reports:', error);
@@ -222,10 +242,10 @@ async function runQueueLoop(): Promise<void> {
         break;
       }
 
-      // Fetch pending / failed reports, oldest first
+      // Fetch pending or retryable failed reports, oldest first
       const pendingReports = await getPendingReports();
 
-      // If the queue is empty, wait a short poll interval
+      // If the queue is empty or all failed reports have exhausted retries, wait a short poll interval
       if (pendingReports.length === 0) {
         await delay(EMPTY_QUEUE_POLL_MS);
         continue;
@@ -248,13 +268,16 @@ async function runQueueLoop(): Promise<void> {
             `[QueueRunner] Starting upload for report ${report.id} (attempt ${report.uploadAttempts + 1})...`,
           );
 
-          await uploadReport(report);
+          // Upload the report and notify UI on intermediate status changes ('uploading', 'waiting')
+          await uploadReport(report, () => {
+            notifyQueueChanged(false);
+          });
 
           console.log(
             `[QueueRunner] Report ${report.id} uploaded successfully.`,
           );
 
-          // Notify the UI: success = true so the screen also stales the server cache.
+          // Notify the UI: success = true so the screen stales the server cache
           notifyQueueChanged(true);
 
           // Wait a short delay before the next report
@@ -268,7 +291,7 @@ async function runQueueLoop(): Promise<void> {
             errorMessage,
           );
 
-          // Notify the UI: success = false, only the queue list needs to refresh.
+          // Notify the UI: status is now 'failed' with error message
           notifyQueueChanged(false);
 
           // Back-off policy:
@@ -334,6 +357,8 @@ export async function stopQueueRunner(): Promise<void> {
     stopWaitingForNetwork();
     stopWaitingForNetwork = null;
   }
+
+  wakeQueueRunner();
 
   if (activeLoopPromise) {
     await activeLoopPromise;

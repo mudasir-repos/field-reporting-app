@@ -22,13 +22,33 @@ export const styles = StyleSheet.create({
     color: '#111827',
   },
   statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 20,
   },
+  badgeSpinner: {
+    marginRight: 4,
+  },
   statusText: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  uploadProgressRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+  },
+  uploadProgressText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#1D4ED8',
   },
   metadata: {
     flexDirection: 'row',
@@ -50,6 +70,27 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     marginTop: 10,
+  },
+  errorText: {
+    fontSize: 12,
+    color: '#DC2626',
+    marginTop: 8,
+    fontWeight: '500',
+  },
+  retryButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#FEE2E2',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  retryButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#DC2626',
   },
   imageContainer: {
     flexDirection: 'row',

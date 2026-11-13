@@ -4,7 +4,9 @@ import {
   ReportDatabaseRow,
   StoredReport,
   UpdateReportStatusInput,
+  UploadStatus,
 } from '../types';
+import { MAX_UPLOAD_ATTEMPTS } from '../utils/constant';
 import { deleteReportImages, saveReportImages } from '../utils/image-storage';
 import { db } from './database';
 
@@ -130,16 +132,25 @@ export async function getLocalReports(): Promise<StoredReport[]> {
 // ─── Read pending / failed ─────────────────────────────────────────────────────
 
 /**
- * Returns all reports in `pending` or `failed` state, oldest first.
- * These are the candidates the queue runner will try to upload.
+ * Returns all candidate reports that the queue runner can attempt to upload.
+ * It includes:
+ * 1. 'pending' reports (always attempted).
+ * 2. 'failed' reports that have not yet exhausted retries (< MAX_UPLOAD_ATTEMPTS).
+ *
+ * Once a report reaches MAX_UPLOAD_ATTEMPTS, it stops auto-retrying to avoid
+ * blocking subsequent reports in the queue.
  */
 export async function getPendingReports(): Promise<StoredReport[]> {
-  const result = await db.execute(`
+  const result = await db.execute(
+    `
     SELECT *
     FROM reports
-    WHERE upload_status IN ('pending', 'failed')
+    WHERE upload_status = 'pending'
+       OR (upload_status = 'failed' AND upload_attempts < ?)
     ORDER BY created_at ASC;
-  `);
+  `,
+    [MAX_UPLOAD_ATTEMPTS],
+  );
 
   const rows = result.rows as unknown as ReportDatabaseRow[];
 
@@ -152,9 +163,6 @@ export async function getPendingReports(): Promise<StoredReport[]> {
  * Atomically updates the mutable upload fields for a single report.
  * Only the fields explicitly included in `input` are changed;
  * columns for omitted optional fields keep their current database value.
- *
- * We build the SET clause dynamically so we never pass `undefined` to
- * op-sqlite (its `Scalar` type only accepts string | number | null).
  */
 export async function updateReportStatus(
   id: string,
@@ -195,11 +203,43 @@ export async function updateReportStatus(
   );
 }
 
+// ─── Retry failed reports ──────────────────────────────────────────────────────
+
+/**
+ * Resets a single failed report back to 'pending' so the queue runner retries it.
+ */
+export async function retryReport(id: string): Promise<void> {
+  await updateReportStatus(id, {
+    uploadStatus: UploadStatus.PENDING,
+    uploadAttempts: 0,
+    lastError: null,
+  });
+}
+
+/**
+ * Resets all 'failed' reports back to 'pending' so the queue runner retries them.
+ */
+export async function retryAllFailedReports(): Promise<void> {
+  const now = new Date().toISOString();
+
+  await db.execute(
+    `
+    UPDATE reports
+    SET upload_status = 'pending',
+        upload_attempts = 0,
+        last_error = null,
+        updated_at = ?
+    WHERE upload_status = 'failed';
+    `,
+    [now],
+  );
+}
+
 // ─── Reset stuck in-flight reports ────────────────────────────────────────────
 
 /**
- * Any report left in `uploading` or `waiting` when the app was killed must be
- * reset to `pending` so the queue runner retries on the next session.
+ * Any report left in 'uploading' or 'waiting' when the app was killed must be
+ * reset to 'pending' so the queue runner retries on the next session.
  */
 export async function resetStuckReports(): Promise<void> {
   const now = new Date().toISOString();
