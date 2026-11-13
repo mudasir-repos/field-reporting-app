@@ -89,3 +89,9 @@ export interface ServerSuccessResponse {
   report: ServerReport;
 }
 
+export interface GetReportsResponse {
+  count: number;
+  reports: ServerReport[];
+}
+
+

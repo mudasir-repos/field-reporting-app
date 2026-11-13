@@ -42,6 +42,44 @@ const EMPTY_QUEUE_POLL_MS = 3_000;
 /** Tiny yield before retrying a network error (500 ms) so we don't spin tightly. */
 const NETWORK_RETRY_DELAY_MS = 500;
 
+// ─── Queue Change Event Emitter ────────────────────────────────────────────────
+
+/**
+ * Each listener receives a boolean:
+ *   true  — an upload finished successfully (server responded 200/201).
+ *   false — an upload failed (network error or server error).
+ *
+ * The UI uses this to decide whether to also mark the server reports cache stale.
+ */
+type QueueChangeCallback = (uploadedSuccessfully: boolean) => void;
+
+const queueChangeListeners: QueueChangeCallback[] = [];
+
+/**
+ * Subscribe to queue status changes.
+ * Returns an unsubscribe function — call it to stop listening (e.g. in useEffect cleanup).
+ */
+export function onQueueChanged(callback: QueueChangeCallback): () => void {
+  queueChangeListeners.push(callback);
+
+  return () => {
+    const index = queueChangeListeners.indexOf(callback);
+    if (index !== -1) {
+      queueChangeListeners.splice(index, 1);
+    }
+  };
+}
+
+/**
+ * Called internally after each upload attempt.
+ * Pass true if the upload succeeded, false if it failed.
+ */
+function notifyQueueChanged(uploadedSuccessfully: boolean): void {
+  for (const listener of queueChangeListeners) {
+    listener(uploadedSuccessfully);
+  }
+}
+
 // ─── Module-Level State ────────────────────────────────────────────────────────
 
 /** Single boolean flag indicating if the runner loop is actively running. */
@@ -52,7 +90,6 @@ let activeLoopPromise: Promise<void> | null = null;
 
 /** Callback to cancel waiting for network connectivity if the runner is stopped. */
 let stopWaitingForNetwork: (() => void) | null = null;
-
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -170,6 +207,8 @@ async function runQueueLoop(): Promise<void> {
   try {
     await resetStuckReports();
     console.log('[QueueRunner] Reset stuck in-flight reports to pending.');
+    // Notify the UI so it shows the corrected statuses on startup.
+    notifyQueueChanged(false);
   } catch (error) {
     console.error('[QueueRunner] Failed to reset stuck reports:', error);
   }
@@ -215,6 +254,9 @@ async function runQueueLoop(): Promise<void> {
             `[QueueRunner] Report ${report.id} uploaded successfully.`,
           );
 
+          // Notify the UI: success = true so the screen also stales the server cache.
+          notifyQueueChanged(true);
+
           // Wait a short delay before the next report
           await delay(SUCCESS_DELAY_MS);
         } catch (error: unknown) {
@@ -225,6 +267,9 @@ async function runQueueLoop(): Promise<void> {
             `[QueueRunner] Upload failed for report ${report.id}:`,
             errorMessage,
           );
+
+          // Notify the UI: success = false, only the queue list needs to refresh.
+          notifyQueueChanged(false);
 
           // Back-off policy:
           // Server error (4xx/5xx): exponential back-off (capped at 60s)
@@ -294,7 +339,6 @@ export async function stopQueueRunner(): Promise<void> {
     await activeLoopPromise;
   }
 }
-
 
 /**
  * Returns whether the queue runner is currently active.

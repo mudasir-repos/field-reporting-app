@@ -10,6 +10,11 @@ export const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 18,
   },
+  headerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   heading: {
     fontSize: 25,
     fontWeight: '800',
@@ -20,6 +25,21 @@ export const styles = StyleSheet.create({
     color: '#6B7280',
     marginTop: 5,
   },
+
+  // Reset / Start over button in the header
+  resetButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#DC2626',
+  },
+  resetButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#DC2626',
+  },
+
   scrollView: {
     flex: 1,
   },
@@ -42,6 +62,50 @@ export const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
   },
+
+  loader: {
+    marginTop: 60,
+  },
+
+  // Empty states
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 24,
+  },
+  emptyStateIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptyStateSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
+  // Retry button inside the error empty state
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 10,
+    backgroundColor: '#2563EB',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+
+  // Floating action button
   fab: {
     position: 'absolute',
     right: 20,

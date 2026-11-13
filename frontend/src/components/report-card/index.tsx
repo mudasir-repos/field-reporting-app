@@ -1,15 +1,18 @@
 import { Image, Text, View } from 'react-native';
-import { styles } from './styles';
 import { UploadStatus } from '../../types';
 import { uploadStatusConfig } from '../../utils/constant';
+import { styles } from './styles';
 
 interface ReportCardProps {
   title: string;
   imageCount: number;
   date: string;
+  // Local queue cards pass local file paths (file:// URIs).
   imagePaths?: string[];
+  // Server report cards pass full HTTP image URLs.
+  imageUrls?: string[];
+  // Only queue cards have an upload status badge.
   uploadStatus?: UploadStatus;
-  reviewStatus?: string;
 }
 
 function ReportCard({
@@ -17,10 +20,16 @@ function ReportCard({
   imageCount,
   date,
   imagePaths = [],
+  imageUrls = [],
   uploadStatus,
-  reviewStatus,
 }: ReportCardProps) {
-  const status = uploadStatus ? uploadStatusConfig[uploadStatus] : null;
+  const statusDisplay = uploadStatus ? uploadStatusConfig[uploadStatus] : null;
+
+  // Use server URLs when available, otherwise fall back to local file paths.
+  const displayImages = imageUrls.length > 0 ? imageUrls : imagePaths;
+
+  // True when this card represents a report from the server (All Reports tab).
+  const isServerReport = imageUrls.length > 0;
 
   return (
     <View style={styles.card}>
@@ -29,23 +38,26 @@ function ReportCard({
           {title}
         </Text>
 
-        {status && (
+        {statusDisplay && (
           <View
-            style={[styles.statusBadge, { backgroundColor: status.background }]}
+            style={[
+              styles.statusBadge,
+              { backgroundColor: statusDisplay.background },
+            ]}
           >
-            <Text style={[styles.statusText, { color: status.color }]}>
-              {status.label}
+            <Text style={[styles.statusText, { color: statusDisplay.color }]}>
+              {statusDisplay.label}
             </Text>
           </View>
         )}
       </View>
 
-      {imagePaths.length > 0 && (
+      {displayImages.length > 0 && (
         <View style={styles.imageContainer}>
-          {imagePaths.map((imagePath, index) => (
+          {displayImages.map((imageUri, index) => (
             <Image
-              key={`${imagePath}-${index}`}
-              source={{ uri: imagePath }}
+              key={`${imageUri}-${index}`}
+              source={{ uri: imageUri }}
               style={styles.thumbnail}
               resizeMode="cover"
             />
@@ -63,13 +75,9 @@ function ReportCard({
         <Text style={styles.metadataText}>{date}</Text>
       </View>
 
-      {uploadStatus && (
-        <Text style={styles.description}>Saved on this device</Text>
-      )}
-
-      {reviewStatus && (
-        <Text style={styles.description}>Review status: {reviewStatus}</Text>
-      )}
+      <Text style={styles.description}>
+        {isServerReport ? 'Received by server' : 'Saved on this device'}
+      </Text>
     </View>
   );
 }
