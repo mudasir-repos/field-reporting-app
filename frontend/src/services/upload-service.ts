@@ -32,7 +32,7 @@
 import RNBlobUtil from 'react-native-blob-util';
 import { API_BASE_URL } from '@env';
 
-import { StoredReport, UploadStatus } from '../types';
+import { ServerSuccessResponse, StoredReport, UploadStatus } from '../types';
 import { updateReportStatus } from '../database/report-repository';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
@@ -44,23 +44,6 @@ import { updateReportStatus } from '../database/report-repository';
  */
 const UPLOAD_TIMEOUT_MS = 90_000;
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
-
-/** Shape of the JSON body the server returns on success. */
-interface ServerReport {
-  id: string;
-  description: string;
-  createdAt: string;
-  imagePaths: string[];
-  imageUrls: string[];
-  receivedAt: string;
-}
-
-interface ServerSuccessResponse {
-  message: string;
-  report: ServerReport;
-}
-
 // ─── Errors ────────────────────────────────────────────────────────────────────
 
 /**
@@ -69,10 +52,7 @@ interface ServerSuccessResponse {
  * The queue runner should NOT retry permanent errors.
  */
 export class PermanentUploadError extends Error {
-  constructor(
-    public readonly statusCode: number,
-    message: string,
-  ) {
+  constructor(public readonly statusCode: number, message: string) {
     super(message);
     this.name = 'PermanentUploadError';
   }
@@ -217,7 +197,12 @@ export async function uploadReport(report: StoredReport): Promise<void> {
     }
 
     // 4xx (except 408 / 429 which are retriable) → permanent error.
-    if (statusCode >= 400 && statusCode < 500 && statusCode !== 408 && statusCode !== 429) {
+    if (
+      statusCode >= 400 &&
+      statusCode < 500 &&
+      statusCode !== 408 &&
+      statusCode !== 429
+    ) {
       let message = `Server rejected the report (HTTP ${statusCode}).`;
 
       try {
@@ -225,7 +210,9 @@ export async function uploadReport(report: StoredReport): Promise<void> {
         if (body.message) {
           message = body.message;
         }
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
 
       throw new PermanentUploadError(statusCode, message);
     }

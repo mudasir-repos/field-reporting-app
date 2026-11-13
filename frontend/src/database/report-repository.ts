@@ -1,52 +1,12 @@
-import type { Asset } from 'react-native-image-picker';
-
+import {
+  CreateLocalReportInput,
+  LocalReport,
+  ReportDatabaseRow,
+  StoredReport,
+  UpdateReportStatusInput,
+} from '../types';
+import { deleteReportImages, saveReportImages } from '../utils/image-storage';
 import { db } from './database';
-import { saveReportImages, deleteReportImages } from '../utils/image-storage';
-import { ReviewStatus, StoredReport, UploadStatus } from '../types';
-
-// ─── Shared types ──────────────────────────────────────────────────────────────
-
-export interface CreateLocalReportInput {
-  id: string;
-  description: string;
-  images: Asset[];
-}
-
-export interface LocalReport {
-  id: string;
-  description: string;
-  imagePaths: string[];
-  uploadStatus: string;
-  createdAt: string;
-}
-
-export interface UpdateReportStatusInput {
-  uploadStatus: UploadStatus;
-  /** New cumulative attempt count. Pass to increment after each try. */
-  uploadAttempts?: number;
-  /** Set to null to clear a previous error; omit to leave unchanged. */
-  lastError?: string | null;
-  /** Set once the server confirms receipt. */
-  serverId?: string | null;
-  /** ISO timestamp of successful upload. */
-  uploadedAt?: string | null;
-}
-
-interface ReportDatabaseRow {
-  id: string;
-  description: string;
-  image_paths: string;
-  upload_status: UploadStatus;
-  review_status: ReviewStatus;
-  created_at: string;
-  updated_at: string;
-  uploaded_at: string | null;
-  server_id: string | null;
-  upload_attempts: number;
-  last_error: string | null;
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function rowToStoredReport(row: ReportDatabaseRow): StoredReport {
   const imagePaths: unknown = JSON.parse(row.image_paths);
@@ -203,10 +163,7 @@ export async function updateReportStatus(
   const now = new Date().toISOString();
 
   // Always-updated columns.
-  const setClauses: string[] = [
-    'upload_status = ?',
-    'updated_at = ?',
-  ];
+  const setClauses: string[] = ['upload_status = ?', 'updated_at = ?'];
   const params: (string | number | null)[] = [input.uploadStatus, now];
 
   // Optional columns — only included when the caller passes them explicitly.
